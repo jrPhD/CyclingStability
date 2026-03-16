@@ -79,6 +79,7 @@ def generate_model_file(
 
         for i in range(n):
             for j in range(m):
+                print('writting element', n, m)
 
                 expr = f"{matrix[i,j]}"
                 expr = expr.replace("bike_v1_0_", "")

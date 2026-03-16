@@ -41,7 +41,7 @@ from typing import Dict, Any
 
 
 def create_symbrim_model(simulation_flag: bool = False, visualization_flag: bool = False):
-
+    t = me.dynamicsymbols._t
     bicycle = sb.WhippleBicycle("bike_v1_0")
     assert type(bicycle) is WhippleBicycleMoore
     bicycle.rear_frame = sb.RigidRearFrame.from_convention("moore", "rear_frame")
@@ -197,7 +197,7 @@ def create_symbrim_model(simulation_flag: bool = False, visualization_flag: bool
         )
         display(HTML(ani.to_jshtml(fps=fps)))
 
-    return system, constants
+    return system, constants, t
 
 
 def export_constants(constants: dict[str, float]) -> None:
@@ -320,12 +320,73 @@ def generate_casadi_file_indep_dynamics(system : System, constants : Dict[str, A
     M_u4_u6_u7 = system.mass_matrix[:3,:]
     F_u4_u6_u7 = system.forcing[:3,:]
     
+    
+    
     # 4 non-holonomic contstains + 1 holonomic constrain
     nh_cons = system.nonholonomic_constraints
     h_cons = system.holonomic_constraints
     
+    vel_cons = system.velocity_constraints
+    
     #kinematics differential equations u=q_dot
     kdes = system.kdes
+    
+    q_d = system.q.diff(t)
+    # u_dep_d = system.u_dep.diff(t)
+    # u_indep_d = system.u_ind.diff(t)
+    # u_d = system.u_dep.col_join(system.u_ind).diff(t)
+
+    #Dict to substitute variables when solving system  
+    qr_zero = {qi: 0 for qi in system.q_dep}
+    qd_zero = {qdi: 0 for qdi in q_d}
+    ur_zero = {ui: 0 for ui in system.u_dep}
+    # us_zero = {ui: 0 for ui in system.u_ind}
+    # urd_zero = {udi: 0 for udi in u_dep_d}
+    # usd_zero = {udi: 0 for udi in u_indep_d}
+
+    #Solve kinematics differential equations for q_d
+    Mk = kdes.jacobian(q_d)
+    gk = kdes.xreplace(qd_zero)
+    qd_sol = -Mk.LUsolve(gk)
+    qd_repl = dict(zip(q_d, qd_sol)) #This further equations can be expressed without q_d
+    
+    #Solve velocity_constraints for dependant velocities
+    vel_cons = vel_cons.xreplace(qd_repl)
+    Mn = vel_cons.jacobian(system.u_dep)
+    gn = vel_cons.xreplace(ur_zero)
+    ur_sol = Mn.LUsolve(-gn)
+    ur_repl = dict(zip(system.u_dep, ur_sol))
+    
+    #Solve velocity_constraints for dependant coordinates
+    Mn = h_cons.jacobian(system.q_dep)
+    gn = h_cons.xreplace(qr_zero)
+    qr_sol = Mn.LUsolve(-gn)
+    qr_repl = dict(zip(system.q_dep, qr_sol))
+    
+    #Replace dependant speed in kdes
+    kdes = kdes.xreplace(ur_repl)
+    
+    # Differenciate vel_cons and replace dependant speed
+    # fnd = vel_cons.diff(t).xreplace(qd_repl)
+    
+    #Solve for dependant generalized accelerations
+    # Mnd = fnd.jacobian(u_dep_d)
+    # gnd = fnd.xreplace(urd_zero).xreplace(ur_repl)
+    # urd_sol = Mnd.LUsolve(-gnd)
+    # urd_repl = dict(zip(u_dep_d, urd_sol))
+    
+    # me.find_dynamicsymbols(urd_sol)
+    
+    #Replace dependant variables in dynamical equations
+    
+    M_u4_u6_u7 = M_u4_u6_u7.xreplace(qd_repl)
+    # me.find_dynamicsymbols(M_u4_u6_u7)
+    
+    F_u4_u6_u7 = F_u4_u6_u7.xreplace(qd_repl)
+    F_u4_u6_u7 = F_u4_u6_u7.xreplace(ur_repl)
+    F_u4_u6_u7 = F_u4_u6_u7.xreplace(qr_repl)
+
+    print('Substitution sucessfully applied')
     
     expr_list = [M_u4_u6_u7, F_u4_u6_u7,
                  nh_cons, h_cons, kdes]
@@ -386,7 +447,7 @@ if __name__ == "__main__":
     tau = 1
     distu = 0
 
-    system, constants = create_symbrim_model(simulation_flag=False, visualization_flag=False)
+    system, constants, t = create_symbrim_model(simulation_flag=False, visualization_flag=False)
 
     export_constants(constants)
 
