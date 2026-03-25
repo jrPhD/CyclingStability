@@ -447,12 +447,12 @@ if __name__ == "__main__":
     tau = 1
     distu = 0
 
-    system, constants, t = create_symbrim_model(simulation_flag=False, visualization_flag=False)
+    system, constants, t = create_symbrim_model(simulation_flag=True, visualization_flag=True)
 
-    export_constants(constants)
+    # export_constants(constants)
 
     # eval_num_full(system, constants, x, tau, distu)
 
-    generate_casadi_file_indep_dynamics(system, constants)
+    # generate_casadi_file_indep_dynamics(system, constants)
 
     # evaluation_casadi_file(constants, x, tau, distu)

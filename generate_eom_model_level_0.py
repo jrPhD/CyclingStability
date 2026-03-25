@@ -35,36 +35,14 @@ from symbrim.rider import PinElbowTorque, SphericalShoulderTorque
 from sympy.utilities.lambdify import lambdify
 
 from typing import Dict, Any
+import bicycleparameters as bp
 
-def generate_continuous_random_motion(num_terms=12):
-    """
-    Generates a continuous, random-like function of time 't'.
-    Returns both the symbolic expression and a numerical function for evaluation.
-    """
-    t = sm.symbols('t')
-    
-    np.random.seed() 
-    
-    terms = []
-    for i in range(num_terms):
 
-        amplitude = np.random.uniform(0.1, 0.5)
-        frequency = np.random.uniform(0.5, 15.0)
-        phase = np.random.uniform(0, 2 * np.pi)
-        
-        term = amplitude * sm.sin(frequency * t + phase)
-        terms.append(term)
-    
-    expression = sum(terms)
-    
-    # Create a numerical function for fast evaluation with numpy arrays
-    func_numeric = sm.lambdify(t, expression, modules=['numpy'])
-    
-    return expression, func_numeric
 
-def generate_model():
+
+def generate_model(model_name):
     t = me.dynamicsymbols._t
-    bicycle = sb.WhippleBicycle("bike_v1_0")
+    bicycle = sb.WhippleBicycle(f"{model_name}")
     assert type(bicycle) is WhippleBicycleMoore
     bicycle.rear_frame = sb.RigidRearFrame.from_convention("moore", "rear_frame")
     assert type(bicycle.rear_frame) is RigidRearFrameMoore
@@ -90,12 +68,15 @@ def generate_model():
     g = sm.symbols("g")
     system.apply_uniform_gravity(-g * normal)
     
+    
+    
     # Disturbance
-    # disturbance = me.dynamicsymbols("disturbance")
-    # system.add_loads(me.Force(bicycle.rear_frame.saddle.point, disturbance * bicycle.rear_frame.wheel_hub.axis))
+    disturbance = me.dynamicsymbols(f"disturbance_{model_name}")
+    # disturbance = f_disturb(t)
+    system.add_loads(me.Force(bicycle.rear_frame.saddle.point, disturbance * bicycle.rear_frame.wheel_hub.axis))
     
     # Steer torque
-    steer_torque = me.dynamicsymbols("steer_torque")
+    steer_torque = me.dynamicsymbols(f"steer_torque_{model_name}")
     system.add_actuators(
         me.TorqueActuator(
             steer_torque,
@@ -104,6 +85,16 @@ def generate_model():
             bicycle.front_frame.steer_hub.frame,
         )
     )
+    
+    # pedaling_torque = me.dynamicsymbols("pedaling_torque")
+    # system.add_actuators(
+    #     me.TorqueActuator(
+    #         pedaling_torque,
+    #         bicycle.rear_frame.wheel_hub.axis,
+    #         bicycle.rear_wheel.frame,
+    #         bicycle.rear_frame.wheel_hub.frame,
+    #     )
+    # )
     
     # Before forming the EoMs we need to specify which generalized coordinates
     # and speeds are independent and which are dependent.
@@ -132,7 +123,6 @@ def generate_model():
     
     # %% Parametrization
     
-    import bicycleparameters as bp
     
     bike_params = bp.Bicycle("Browser", pathToData="data")
     # bike_params.add_rider("Jason", reCalc=True)
@@ -148,15 +138,34 @@ def generate_model():
     print("\n\nIs there any missing constant? -->")
     print(missing_symbols)
     
-    # dist = sm.sin(2*t*3.14*10)
     
-    # eoms = eoms.col_join(sm.Matrix([disturbance - dist]))
+    # eoms = eoms.col_join(sm.Matrix([disturbance - f_disturb(t)]))
     
     x = system.q.col_join(system.u)
-    r = steer_torque
+    # x = x.col_join(sm.Matrix([disturbance]))
+    # r = (steer_torque, pedaling_torque)
+    r = sm.Matrix([steer_torque])
+    
     p = constants
-
-    return t, x, r, eoms, p
+    
+    permutation = [0, 1, 2, 3, 7, 4, 5, 6, 11, 12, 13, 8, 14, 9, 10, 15]
+    
+    # x = x[[0,1,2,3,7,4,5,6,11,12,13,8,14,9,10,15]]
+    x_reordered = sm.Matrix([x.row(i) for i in permutation])
+    x = x_reordered.as_immutable()
+    
+    q1, q2, q3, q4, q5, q6, q7, q8,  = x[:8]
+    u1, u2, u3, u4, u5, u6, u7, u8 = x[8:]
+    
+    nh_cons = system.nonholonomic_constraints
+    h_cons = system.holonomic_constraints
+    kdes = system.kdes
+    
+    eoms = eoms.col_join(sm.Matrix(kdes)).col_join(sm.Matrix(h_cons)).col_join(sm.Matrix(nh_cons))
+    
+    disturbance = sm.Matrix([disturbance])
+    
+    return t, x, r, eoms, p, bicycle, disturbance
 
 
 def export_constants(constants: dict[str, float]) -> None:
@@ -184,8 +193,8 @@ def export_constants(constants: dict[str, float]) -> None:
 if __name__ == "__main__":
 
     pass
-
-    t, x, r, eoms, p= generate_model()
+    model_name = 'model_0'
+    t, x, r, eoms, p, bicycle, disturbance = generate_model(model_name)
 
     # export_constants(constants)
 
