@@ -17,6 +17,14 @@ from generate_eom_model_level_0 import generate_model
 
 from utils import plot_trajectories
 
+
+import matplotlib.pyplot as plt
+from IPython.display import HTML
+from matplotlib.animation import FuncAnimation
+from scipy.interpolate import CubicSpline
+
+from symbrim.utilities.plotting import Plotter
+
 model_names = ['m1','m2']
 
 t1, x1, r1, eoms1, p1, bicycle1, disturbance_1 = generate_model(model_names[0])
@@ -26,8 +34,8 @@ t = t1
 x = x1.col_join(x2)
 r = r1.col_join(r2)
 eoms = eoms1.col_join(eoms2)
+bicycles = [bicycle1, bicycle2]
 p = p1
-bicycle = bicycle1
 disturbance = disturbance_1.col_join(disturbance_2)
 
 param, param_vals = zip(*p.items())
@@ -43,13 +51,56 @@ NUM_STATES_TOT = NUM_MODELS*NUM_STATES
 NUM_INPUTS_TOT = NUM_MODELS*NUM_INPUTS
 
 WEIGHT = 0.5
-SPEED = 3  # m/s
-DURATION = 3
+SPEED = 5  # m/s
+DURATION = 1.5
 NUM_NODES = 10
 INTERVAL_VALUE = DURATION / (NUM_NODES - 1)
 
 
 
+def animate_solution(t_simu, x_opt, T_opt, disturbance, bicycle, x, r):
+
+    # Create some functions to interpolate the results.
+    x_eval = CubicSpline(t_simu, x_opt.T)
+    r_eval = CubicSpline(t_simu, T_opt.T)
+    # dis_eval = CubicSpline(t_simu, dis.T)
+    # max_disturbance = dis.max()
+
+    # Plot the initial configuration of the model
+    fig, ax = plt.subplots(subplot_kw={"projection": "3d"}, figsize=(8, 8))
+    plotter = Plotter.from_model(bicycle, ax=ax)
+    # plotter.add_vector(
+    #     disturbance * bicycle.rear_frame.wheel_hub.axis / max_disturbance,
+    #     bicycle.rear_frame.saddle.point,
+    #     name="disturbance",
+    #     color="r",
+    # )
+    # plotter.lambdify_system((x, r, disturbance, param))
+    # plotter.evaluate_system(x_eval(0.0), r_eval(0.0),dis[0], param_vals)
+    
+    plotter.lambdify_system((x, r, param))
+    plotter.evaluate_system(x_eval(0.0), r_eval(0.0), param_vals)
+    plotter.plot()
+    X, Y = np.meshgrid(np.arange(-1, 10, 0.5), np.arange(-1, 3, 0.5))
+    ax.plot_wireframe(X, Y, np.zeros_like(X), color="k", alpha=0.3, rstride=1, cstride=1)
+    ax.invert_zaxis()
+    ax.invert_yaxis()
+    ax.set_xlim(X.min(), X.max())
+    ax.set_ylim(Y.min(), Y.max())
+    ax.view_init(19, 14)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    fps = 30
+    # ani = plotter.animate(
+    #     lambda ti: (x_eval(ti), r_eval(ti), dis_eval(ti), param_vals), frames=np.arange(0, t_simu[-1], 1 / fps), blit=False
+    # )
+    
+    ani = plotter.animate(
+        lambda ti: (x_eval(ti), r_eval(ti), param_vals), frames=np.arange(0, t_simu[-1], 1 / fps), blit=False
+    )
+    
+    display(HTML(ani.to_jshtml(fps=fps)))
 
 def obj(free):
     """Minimize the sum of the squares of steer torque"""
@@ -102,7 +153,7 @@ def generate_bounds_and_contstraints():
         steer_torque = r[model_index]
 
         bounds[q1]= (-0.1, SPEED*DURATION + 0.1)
-        bounds[q2]= (-1, 1) #Si large la vélo est tabilisé mais part sur le coté
+        bounds[q2]= (-3, 3) #Si large la vélo est tabilisé mais part sur le coté
         bounds[q3]= (-1.0, 1.0)
         bounds[q4]= (-1.0, 1.0)
         bounds[q5]= (-1, 1)
@@ -124,7 +175,7 @@ def generate_bounds_and_contstraints():
         initial_state_constraints[q1] = 0.0
         initial_state_constraints[q2] = 0.0
         initial_state_constraints[q3] = 0.0
-        initial_state_constraints[q4] = 0.0
+        # initial_state_constraints[q4] = 0.0
         # initial_state_constraints[q5] = 0.4
         initial_state_constraints[q6] = 0.0
         initial_state_constraints[q7] = 0.0
@@ -133,7 +184,7 @@ def generate_bounds_and_contstraints():
         initial_state_constraints[u2] = 0.0
         initial_state_constraints[u3] = 0.0
         initial_state_constraints[u4] = 0.0
-        initial_state_constraints[u5] = 0.0
+        # initial_state_constraints[u5] = 0.0
         initial_state_constraints[u6] = -SPEED/param_vals[-6]
         initial_state_constraints[u7] = 0.0
         initial_state_constraints[u8] = -SPEED/param_vals[-2]
@@ -143,19 +194,20 @@ def generate_bounds_and_contstraints():
         # final_state_constraints[q1] = SPEED*DURATION
         # final_state_constraints[q2] = 0.0
         # final_state_constraints[q3] = 0.0
-        final_state_constraints[q4] = 0.0
+        # final_state_constraints[q4] = 0.0
         # final_state_constraints[q5] = -0.314
         # final_state_constraints[q6] = 0.0
-        final_state_constraints[q7] = 0.0
+        # final_state_constraints[q7] = 0.0
         # final_state_constraints[q8] = 0.0
         # final_state_constraints[u1] = SPEED
         # final_state_constraints[u2] = 0.0
-        # final_state_constraints[u3] = 0.0
+        final_state_constraints[u3] = 0.0
         final_state_constraints[u4] = 0.0
         # final_state_constraints[u5] = 0.0
         # final_state_constraints[u6] = -SPEED/param_vals[-6]
         final_state_constraints[u7] = 0.0
         # final_state_constraints[u8] = -SPEED/param_vals[-2]
+        
     return(bounds, initial_state_constraints, final_state_constraints)
 
 
@@ -163,17 +215,16 @@ bounds, initial_state_constraints, final_state_constraints = generate_bounds_and
 
 
 instance_constraints = tuple(
-        xi.replace(t, 0.0) - xi_val for xi, xi_val in initial_state_constraints.items()) 
-# + tuple(
-#         xi.replace(t, DURATION) - xi_val for xi, xi_val in final_state_constraints.items())
+        xi.replace(t, 0.0) - xi_val for xi, xi_val in initial_state_constraints.items()) + tuple(
+        xi.replace(t, DURATION) - xi_val for xi, xi_val in final_state_constraints.items())
 
 # disturbance = me.dynamicsymbols("disturbance")
-dis_1 = np.random.normal(0, 100, NUM_NODES)
-dis_2 = np.random.normal(0, 100, NUM_NODES)
+# dis_1 = np.random.normal(0, 100, NUM_NODES)
+# dis_2 = np.random.normal(0, 100, NUM_NODES)
 
 
 
-known_trajectories = {dist : np.random.normal(0, 100, NUM_NODES) for dist in disturbance}
+known_trajectories = {dist : np.random.normal(0, 20, NUM_NODES) for dist in disturbance}
 
 
 problem = Problem(
@@ -192,7 +243,7 @@ problem = Problem(
     parallel=True,
     # backend='numpy'
 )
-problem.add_option('max_iter' , 10000)
+problem.add_option('max_iter' , 100000)
 
 
 
@@ -211,58 +262,25 @@ visualization_flag = True
 x_opt, T_opt = sol.reshape(-1, NUM_NODES)[:-1,:], sol.reshape(-1, NUM_NODES)[-1:,:]
 t_simu = np.linspace(0, DURATION, NUM_NODES)
 
-
-
 if visualization_flag:
-
-    import matplotlib.pyplot as plt
-    from IPython.display import HTML
-    from matplotlib.animation import FuncAnimation
-    from scipy.interpolate import CubicSpline
-
-    from symbrim.utilities.plotting import Plotter
-
-    # Create some functions to interpolate the results.
-    x_eval = CubicSpline(t_simu, x_opt.T)
-    r_eval = CubicSpline(t_simu, T_opt.T)
-    # dis_eval = CubicSpline(t_simu, dis.T)
-    # max_disturbance = dis.max()
-
-    # Plot the initial configuration of the model
-    fig, ax = plt.subplots(subplot_kw={"projection": "3d"}, figsize=(8, 8))
-    plotter = Plotter.from_model(bicycle, ax=ax)
-    # plotter.add_vector(
-    #     disturbance * bicycle.rear_frame.wheel_hub.axis / max_disturbance,
-    #     bicycle.rear_frame.saddle.point,
-    #     name="disturbance",
-    #     color="r",
-    # )
-    # plotter.lambdify_system((x, r, disturbance, param))
-    # plotter.evaluate_system(x_eval(0.0), r_eval(0.0),dis[0], param_vals)
     
-    plotter.lambdify_system((x, r, param))
-    plotter.evaluate_system(x_eval(0.0), r_eval(0.0), param_vals)
-    plotter.plot()
-    X, Y = np.meshgrid(np.arange(-1, 10, 0.5), np.arange(-1, 3, 0.5))
-    ax.plot_wireframe(X, Y, np.zeros_like(X), color="k", alpha=0.3, rstride=1, cstride=1)
-    ax.invert_zaxis()
-    ax.invert_yaxis()
-    ax.set_xlim(X.min(), X.max())
-    ax.set_ylim(Y.min(), Y.max())
-    ax.view_init(19, 14)
-    ax.set_aspect("equal")
-    ax.axis("off")
+    for model_index in range(NUM_MODELS):
+        
+        x_opt_model = x_opt[model_index*16:16*(model_index+1)]
+        T_opt_model = T_opt[model_index*16:16*(model_index+1)]
+        disturbance_model =  known_trajectories[list(known_trajectories.keys())[model_index]]
+        x_model = x[model_index*16:16*(model_index+1)]
+        r_model = r[model_index*NUM_INPUTS:NUM_INPUTS*(model_index+1)][0]
+    
+    
+        animate_solution(t_simu, 
+                         x_opt_model, 
+                         T_opt_model, 
+                         disturbance_model, 
+                         bicycles[model_index], 
+                         x_model, 
+                         r_model)
 
-    fps = 30
-    # ani = plotter.animate(
-    #     lambda ti: (x_eval(ti), r_eval(ti), dis_eval(ti), param_vals), frames=np.arange(0, t_simu[-1], 1 / fps), blit=False
-    # )
-    
-    ani = plotter.animate(
-        lambda ti: (x_eval(ti), r_eval(ti), param_vals), frames=np.arange(0, t_simu[-1], 1 / fps), blit=False
-    )
-    
-    display(HTML(ani.to_jshtml(fps=fps)))
 
 
 
