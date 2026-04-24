@@ -71,12 +71,12 @@ def generate_model(model_name):
     
     
     # Disturbance
-    disturbance = me.dynamicsymbols(f"disturbance_{model_name}")
+    disturbance = me.dynamicsymbols(f"{model_name}_disturbance")
     # disturbance = f_disturb(t)
     system.add_loads(me.Force(bicycle.rear_frame.saddle.point, disturbance * bicycle.rear_frame.wheel_hub.axis))
     
     # Steer torque
-    steer_torque = me.dynamicsymbols(f"steer_torque_{model_name}")
+    steer_torque = me.dynamicsymbols(f"{model_name}_steer_torque")
     system.add_actuators(
         me.TorqueActuator(
             steer_torque,
@@ -86,15 +86,15 @@ def generate_model(model_name):
         )
     )
     
-    # pedaling_torque = me.dynamicsymbols("pedaling_torque")
-    # system.add_actuators(
-    #     me.TorqueActuator(
-    #         pedaling_torque,
-    #         bicycle.rear_frame.wheel_hub.axis,
-    #         bicycle.rear_wheel.frame,
-    #         bicycle.rear_frame.wheel_hub.frame,
-    #     )
-    # )
+    pedaling_torque = me.dynamicsymbols(f"{model_name}_pedaling_torque")
+    system.add_actuators(
+        me.TorqueActuator(
+            pedaling_torque,
+            bicycle.rear_frame.wheel_hub.axis,
+            bicycle.rear_wheel.frame,
+            bicycle.rear_frame.wheel_hub.frame,
+        )
+    )
     
     # Before forming the EoMs we need to specify which generalized coordinates
     # and speeds are independent and which are dependent.
@@ -130,13 +130,13 @@ def generate_model(model_name):
     constants = bicycle.get_param_values(bike_params)
     constants[g] = 9.81  # Don't forget to specify the gravitational constant.
     
-    print("\n\nConstants of the model:")
-    print(constants)
+    # print("\n\nConstants of the model:")
+    # print(constants)
     
-    missing_symbols = bicycle.get_all_symbols().difference(constants.keys())
+    # missing_symbols = bicycle.get_all_symbols().difference(constants.keys())
     
-    print("\n\nIs there any missing constant? -->")
-    print(missing_symbols)
+    # print("\n\nIs there any missing constant? -->")
+    # print(missing_symbols)
     
     
     # eoms = eoms.col_join(sm.Matrix([disturbance - f_disturb(t)]))
@@ -144,7 +144,7 @@ def generate_model(model_name):
     x = system.q.col_join(system.u)
     # x = x.col_join(sm.Matrix([disturbance]))
     # r = (steer_torque, pedaling_torque)
-    r = sm.Matrix([steer_torque])
+    r = sm.Matrix([steer_torque, pedaling_torque])
     
     p = constants
     

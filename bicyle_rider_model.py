@@ -196,6 +196,10 @@ def create_symbrim_model(simulation_flag: bool = False, visualization_flag: bool
             lambda ti: (x_eval(ti), r_eval(ti), p_vals), frames=np.arange(0, simu.t[-1], 1 / fps), blit=False
         )
         display(HTML(ani.to_jshtml(fps=fps)))
+        
+        html_writer = HTMLWriter()
+        ani.save(ani_name if ani_name.endswith(".html") else ani_name + ".html", writer=html_writer)
+
 
     return system, constants, t
 
