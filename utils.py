@@ -32,6 +32,8 @@ def make_new_results_folder(loc, suffixe=""):
 
 
     """
+    os.makedirs('results', exist_ok=True)
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     file_name = loc + f"{timestamp}/"
