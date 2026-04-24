@@ -196,6 +196,10 @@ def create_symbrim_model(simulation_flag: bool = False, visualization_flag: bool
             lambda ti: (x_eval(ti), r_eval(ti), p_vals), frames=np.arange(0, simu.t[-1], 1 / fps), blit=False
         )
         display(HTML(ani.to_jshtml(fps=fps)))
+        
+        html_writer = HTMLWriter()
+        ani.save(ani_name if ani_name.endswith(".html") else ani_name + ".html", writer=html_writer)
+
 
     return system, constants, t
 
@@ -447,12 +451,12 @@ if __name__ == "__main__":
     tau = 1
     distu = 0
 
-    system, constants, t = create_symbrim_model(simulation_flag=False, visualization_flag=False)
+    system, constants, t = create_symbrim_model(simulation_flag=True, visualization_flag=True)
 
-    export_constants(constants)
+    # export_constants(constants)
 
     # eval_num_full(system, constants, x, tau, distu)
 
-    generate_casadi_file_indep_dynamics(system, constants)
+    # generate_casadi_file_indep_dynamics(system, constants)
 
     # evaluation_casadi_file(constants, x, tau, distu)
