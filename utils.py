@@ -92,9 +92,12 @@ def plot_trajectories(t, x, r, state_syms, input_syms, skip_first=False):
     
     
 
-def plot_optimal_solution(t_simu, x_list, r_list, disturbance_list, n_start, model_index, sol_opt, path, save=True):
+def plot_optimal_solution(t_simu, x_list, r_dep_list, r_ind_list, disturbance_list, n_start, model_index, sol_opt, path, save=True):
 
-    fig, axs = plt.subplots(3,3)
+    fig, axs = plt.subplots(4,3)
+    
+    # print(len(sol_opt))
+    # print(list(x_list[model_index]) + list(r_dep_list[0]) + list(r_ind_list[0]) + list(disturbance_list[model_index]))
     
     plot_config = [
           (0, 0, r'x_R [m]', 'conv_False'), # 'q1'
@@ -113,25 +116,31 @@ def plot_optimal_solution(t_simu, x_list, r_list, disturbance_list, n_start, mod
           (1, 2, r'$\dot{\theta_R}$ [deg]', 'conv_True'), # 'u6'
           (1, 1, r'$\dot{\delta}$ [deg/s]', 'conv_True'), # 'u7'
           (1, 2, r'$\dot{\theta_F}$ [deg]', 'conv_True'), # 'u8'
-          (2, 0, r'$T_{\delta}$ [Nm]', 'conv_False'),
-          (2, 1, r'$T_{ped}$ [Nm]', 'conv_False'),
-          (2, 2, r'Disturbance [N]', 'conv_False')] # 'Torque'
+          (2, 0, r'$T_{\delta}$ [Nm]', 'conv_False'), # 'Torques'
+          (2, 1, r'$T_{\phi}$ [Nm]', 'conv_False'), # 'Torques'
+          # (3, 0, r'K_steer []', 'conv_False'),
+          # (3, 1, r'K_roll []', 'conv_False'),
+          (2, 2, r'$T_{ped}$ [Nm]', 'conv_False'),
+          (2, 0, r'$T_{\delta_{ff}}$ [Nm]', 'conv_False'),
+          (3, 2, r'Disturbance [N]', 'conv_False')] 
     
-    plot_config = {str(var)[:-3] : plot_config[n] for n, var in enumerate(list(x_list[model_index]) + list(r_list[model_index]) + list(disturbance_list[model_index]))}
     
+    plot_config = {str(var)[:-3] : plot_config[n] for n, var in enumerate(list(x_list[model_index]) + list(r_dep_list[0]) + list(r_ind_list[0]) + list(disturbance_list[model_index]))}
     
+    # print(plot_config)
+    # print(len(sol_opt))
     
-    for n, var in enumerate(list(x_list[model_index]) + list(r_list[model_index]) + list(disturbance_list[model_index])):
+    for n, var in enumerate(list(x_list[model_index]) + list(r_dep_list[0]) + list(r_ind_list[0]) + list(disturbance_list[model_index])):
         fig.suptitle(f'Model {model_index}')
         i, j, label, conv = plot_config[str(var)[:-3]]
 
         if conv == 'conv_True':
-            axs[i,j].plot(t_simu, np.rad2deg(sol_opt[n]), label = label)
+            axs[i, j].plot(t_simu, np.rad2deg(sol_opt[n]), label = label)
         else:
-            axs[i,j].plot(t_simu, sol_opt[n], label = label)
+            axs[i, j].plot(t_simu, sol_opt[n], label = label)
     
         
-        axs[i,j].legend(bbox_to_anchor=(0.95, 1))
+        axs[i, j].legend(bbox_to_anchor = (0.95, 1))
         plt.tight_layout()
     
     if save==True:
@@ -195,19 +204,23 @@ def save_results(to_save, path):
     with open(f'{file_to_save}.pkl', 'wb') as file:
         pickle.dump(to_save, file)
     
-def export_results_as_csv(t_simu, x_opt, T_opt, x, r, n_start, model_type, known_trajectories, path):
+def export_results_as_csv(t_simu, k_opt, x_opt, r_dep_opt, r_ind_opt, k, x, r, n_start, model_type, known_trajectories, path):
     
+    x_and_r_dep_opt = np.vstack((x_opt, r_dep_opt))
     
-    dict_for_pandas = { f'{var}' : x_opt[k, :]  for k, (var, values) in enumerate(zip(x, x_opt)) }
+    dict_for_pandas = { f'{var}' : x_and_r_dep_opt[i, :]  for i, (var, values) in enumerate(zip(x, x_and_r_dep_opt))}
 
-    for k, var in enumerate(r):
-        dict_for_pandas[f'{var}'] = T_opt[k]
+    for j, var in enumerate(r):
+        dict_for_pandas[f'{var}'] = r_ind_opt[j]
         
     dict_for_pandas.update(known_trajectories)
     
     dict_for_pandas['t_simu'] = t_simu
     dict_for_pandas['model_type'] = model_type
     dict_for_pandas['n_start'] = n_start
+    
+    for j, par in enumerate(k):
+        dict_for_pandas[f'{par}'] = k_opt[j]
     
     df = pd.DataFrame(dict_for_pandas)
     
@@ -243,7 +256,7 @@ def export_results_as_csv(t_simu, x_opt, T_opt, x, r, n_start, model_type, known
     all_cols = df_final.columns.tolist()
     q_cols = sort_cols('q', all_cols)
     u_cols = sort_cols('u', all_cols)
-    other_cols = ['steer_torque', 'pedaling_torque', 'disturbance']
+    other_cols = ['K_steer','K_roll', 'pedaling_torque', 'disturbance']
     # Filtrer other_cols pour ne garder que ce qui existe
     other_cols = [c for c in other_cols if c in all_cols]
     

@@ -76,7 +76,7 @@ def generate_model(model_name):
     system.add_loads(me.Force(bicycle.rear_frame.saddle.point, disturbance * bicycle.rear_frame.wheel_hub.axis))
     
     # Steer torque
-    steer_torque = me.dynamicsymbols(f"{model_name}_steer_torque")
+    steer_torque = me.dynamicsymbols(f"steer_torque")
     system.add_actuators(
         me.TorqueActuator(
             steer_torque,
@@ -86,7 +86,7 @@ def generate_model(model_name):
         )
     )
     
-    pedaling_torque = me.dynamicsymbols(f"{model_name}_pedaling_torque")
+    pedaling_torque = me.dynamicsymbols(f"pedaling_torque")
     system.add_actuators(
         me.TorqueActuator(
             pedaling_torque,

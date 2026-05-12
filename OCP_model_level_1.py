@@ -51,14 +51,15 @@ class SOCP_problem:
         
         print(f'PROBLEM INITIALIZED - {NUM_MODELS} models of type "{model_type}":')
 
-        t_list, x_list, r_list, k_list, eoms_list, p_list, bicycle_list, disturbance_list = [], [],[],[],[],[],[],[]
+        t_list, x_list, r_dep_list, r_ind_list, k_list ,eoms_list, p_list, bicycle_list, disturbance_list = [], [], [],[],[],[],[],[],[]
 
         for model in model_names:
-            t_model, x_model, r_model, k_model, eoms_model, p_model, bicycle_model, disturbance_model = generate_model(model)
+            t_model, x_model, r_dep_model, r_ind_model, k_model, eoms_model, p_model, bicycle_model, disturbance_model = generate_model(model)
             
             t_list.append(t_model)
             x_list.append(x_model)
-            r_list.append(r_model)
+            r_dep_list.append(r_dep_model)
+            r_ind_list.append(r_ind_model)
             k_list.append(k_model)
 
             eoms_list.append(eoms_model)
@@ -68,40 +69,48 @@ class SOCP_problem:
 
         self.NUM_MODELS = NUM_MODELS
         self.t = t_list[0]
-        self.x = x_list[0]
-        self.r = r_list[0]
+        
+        
+        #dependant input (from feedback) are treated as state variables
+        #They are include once in the x vector beacause they are common to all models
+        
+        self.x = x_list[0].col_join(r_dep_list[0])
+        self.r = r_ind_list[0]
         self.k = k_list[0]
+
         self.eoms = eoms_list[0]
         self.p = p_list[0]
         self.disturbance = disturbance_list[0]
         self.bicycle_list = bicycle_list
         
         self.x_list = x_list
-        self.r_list = r_list[0]
-        self.k_list = k_list[0]
+        self.r_ind_list = [r_ind_list[0]]
+        self.r_dep_list = [r_dep_list[0]]
+
 
         self.disturbance_list = disturbance_list
         
-        if self.NUM_MODELS>1:
+        if self.NUM_MODELS > 1:
+            
+            self.x = x_list[0]
+            
             for k in range(1, NUM_MODELS):
                 self.x = self.x.col_join(x_list[k])
                 # self.r = self.r.col_join(r_list[k])
                 self.eoms = self.eoms.col_join(eoms_list[k])
                 self.disturbance = self.disturbance.col_join(disturbance_list[k])
+            self.x = self.x.col_join(r_dep_list[0])
+
         
-
-
 
         self.param, self.param_vals = zip(*self.p.items())
 
-
-
-
-        self.NUM_STATES = len(x_list[0])
-        self.NUM_INPUTS = len(r_list[0])
+        self.NUM_STATES = len(x_list[0]) + len(r_dep_list[0]) #States include the dep torques 
+        self.NUM_INPUTS = len(r_ind_list[0]) 
         self.NUM_KNOWN_TRAJ = 1
+        self.NUM_GAINS = len(self.k)
         
-        self.NUM_STATES_TOT = NUM_MODELS*self.NUM_STATES
+        self.NUM_STATES_TOT = self.NUM_MODELS*len(x_list[0]) + len(r_dep_list[0]) #States include the dep torques 
         # self.NUM_INPUTS = NUM_MODELS*self.NUM_INPUTS
         time_1 = time.time()
         
@@ -144,34 +153,45 @@ class SOCP_problem:
         self.NUM_NODES = self.SAMPLING_FREQUENCY*self.DURATION #Au moins 10 Hz
         self.INTERVAL_VALUE = self.DURATION / (self.NUM_NODES - 1)
         
+        steer_torque, roll_torque = self.x[-2:]
+        # K_steer, K_roll = self.k
         
-        steer_torque, roll_torque, pedaling_torque, K_steer, K_roll = self.r
-        self.bounds[steer_torque] = (-30,30) #ok
-        self.bounds[roll_torque] = (-100,100)
-        self.bounds[pedaling_torque] = (-65,0)
+        # print(self.r)
+        
+        pedaling_torque = self.r[0]
+        
+        self.bounds[steer_torque] = (-30, 30) #ok
+        self.bounds[roll_torque] = (-100, 100)
+        self.bounds[pedaling_torque] = (-65, 0)
         
         
-        self.bounds[K_steer] = (-1000,1000)
-        self.bounds[K_roll] = (-1000,1000)
-        # self.initial_state_constraints[steer_torque] = 0
-        # self.initial_state_constraints[pedaling_torque] = 0
+        # self.bounds[K_steer] = (-10, 10)
+        # self.bounds[K_roll] = (-10, 10)
+        self.initial_state_constraints[steer_torque] = 0
+        self.initial_state_constraints[pedaling_torque] = 0
 
         
         for model_index in range(self.NUM_MODELS):
+            print('model_index:', model_index)
             
             
-            q1, q2, q3, q4, q5, q6, q7, q8,  = self.x[model_index*self.NUM_STATES:self.NUM_STATES*model_index+self.NUM_STATES//2]
-            u1, u2, u3, u4, u5, u6, u7, u8 = self.x[model_index*self.NUM_STATES+self.NUM_STATES//2:model_index*self.NUM_STATES+self.NUM_STATES]
+            # print(self.x[:-len(self.r_dep_list[0])][model_index*(self.NUM_STATES - len(self.r_dep_list[0])):(self.NUM_STATES - len(self.r_dep_list[0]))*model_index + (self.NUM_STATES - len(self.r_dep_list[0]))//2])
+            # print(self.x[:-len(self.r_dep_list[0])][model_index*self.NUM_STATES + self.NUM_STATES//2:model_index*self.NUM_STATES + self.NUM_STATES])
+
+            # print(self.x[:-len(self.r_dep_list[0])])
+
+            q1, q2, q3, q4, q5, q6, q7, q8 = self.x[:-len(self.r_dep_list[0])][model_index*(self.NUM_STATES - len(self.r_dep_list[0])):(self.NUM_STATES - len(self.r_dep_list[0]))*model_index + (self.NUM_STATES - len(self.r_dep_list[0]))//2]
+            u1, u2, u3, u4, u5, u6, u7, u8 = self.x[:-len(self.r_dep_list[0])][model_index*(self.NUM_STATES - len(self.r_dep_list[0])) + (self.NUM_STATES - len(self.r_dep_list[0]))//2:model_index*(self.NUM_STATES - len(self.r_dep_list[0])) + (self.NUM_STATES - len(self.r_dep_list[0]))]
             # steer_torque, pedaling_torque = self.r[model_index*self.NUM_INPUTS:self.NUM_INPUTS*(model_index+1)]
 
     
             self.bounds[q1] = (-0.1, self.SPEED*self.DURATION*1.1)
-            self.bounds[q2] = (-4, 4) #Si large la vélo est stabilisé mais part sur le coté
-            self.bounds[q3] = (-1.0, 1.0)
-            self.bounds[q4] = (0, 1.0)
+            self.bounds[q2] = (-2, 2) #Si large la vélo est stabilisé mais part sur le coté
+            self.bounds[q3] = (-0.6, 0.6)
+            self.bounds[q4] = (-0.6, 0.6)
             self.bounds[q5] = (-1, 1)
             self.bounds[q6] = (-100, 0)
-            self.bounds[q7] = (-0.7, 0.7)
+            self.bounds[q7] = (-0.6, 0.6)
             self.bounds[q8] = (-100, 0)
             self.bounds[u1] = (self.SPEED*0.95, self.SPEED*1.05) #ok
             self.bounds[u2] = (-5, 5) #ok
@@ -188,7 +208,7 @@ class SOCP_problem:
             self.initial_state_constraints[q1] = 0.0
             self.initial_state_constraints[q2] = 0.0
             self.initial_state_constraints[q3] = 0.0
-            self.initial_state_constraints[q4] = 0.0
+            # self.initial_state_constraints[q4] = 0.0
             self.initial_state_constraints[q5] = 0.39968039870670147 # Super critique
             self.initial_state_constraints[q6] = 0.0
             self.initial_state_constraints[q7] = 0.0
@@ -253,12 +273,17 @@ class SOCP_problem:
     
             q2 = x[1]
             
-            #Minimize lateral travelled distance
-            J2 = INTERVAL_VALUE*((WEIGHT)*(np.sum(q2)**2))
-        
-            J3 = INTERVAL_VALUE*((1-WEIGHT)*(np.sum((r.flatten())**2)))
+            tau_steer, tau_roll = x[-2:]
             
-            return J2+J3
+            
+            #Minimize lateral travelled distance
+            J1 = INTERVAL_VALUE*((WEIGHT)*(np.sum(q2**2)))
+        
+            J2 = INTERVAL_VALUE*((1-WEIGHT)*(np.sum((r.flatten())**2)))
+            
+            J3 = INTERVAL_VALUE*((1-WEIGHT)*(np.sum((tau_steer)**2 + (tau_roll)**2)))
+            
+            return J1 + J2 + J3
     
     
         def obj_grad(free):
@@ -266,15 +291,21 @@ class SOCP_problem:
             x, r, _ = parse_free(free, NUM_STATES, NUM_INPUTS, NUM_NODES)
     
             q2 = x[1]
+            
+            tau_steer, tau_roll = x[-2:]
         
             grad = np.zeros_like(free)
             
             grad[1*NUM_NODES:2*NUM_NODES] = 2.0*INTERVAL_VALUE*WEIGHT*q2
             grad[NUM_STATES*NUM_NODES:(NUM_STATES + NUM_INPUTS)*NUM_NODES] = 2.0*(1.0-WEIGHT)*INTERVAL_VALUE*r.flatten()
             
+            grad[(NUM_STATES - 2)*NUM_NODES : (NUM_STATES - 1)*NUM_NODES] = 2.0*(1.0-WEIGHT)*INTERVAL_VALUE*tau_steer
+            grad[(NUM_STATES - 1)*NUM_NODES : (NUM_STATES)*NUM_NODES] = 2.0*(1.0-WEIGHT)*INTERVAL_VALUE*tau_roll
+
+            
             return grad
         
-        motor_noise_magnitude = 0.000001
+        motor_noise_magnitude = 1
         
         time_2 = time.time()
         
@@ -284,7 +315,12 @@ class SOCP_problem:
 
         self.known_trajectories = {dist : np.random.normal(0, motor_noise_magnitude, self.NUM_NODES) for dist in self.disturbance}
 
+        for traj in self.known_trajectories.keys():
+            self.known_trajectories[traj][0] = 0
+            self.known_trajectories[traj][-1] = 0
+
         state_vars = self.x.col_join(self.r)
+        print(state_vars)
 
         self.problem = Problem(
             obj,
@@ -295,11 +331,11 @@ class SOCP_problem:
             self.INTERVAL_VALUE,
             known_parameter_map = self.p,
             known_trajectory_map = self.known_trajectories,
-            instance_constraints= instance_constraints,
-            bounds= self.bounds,
+            instance_constraints = instance_constraints,
+            bounds = self.bounds,
             # integration_method='midpoint',
-            time_symbol= self.t,
-            parallel= True,
+            time_symbol = self.t,
+            parallel = True,
             # backend='numpy'
         )
         self.problem.add_option('max_iter' , MAX_INTER)
@@ -340,15 +376,24 @@ class SOCP_problem:
         
 
         self.t_simu = np.linspace(0, self.DURATION, self.NUM_NODES)
-        initial_guess_len_needed = (self.NUM_STATES_TOT + self.NUM_INPUTS)*self.NUM_NODES
-
+        initial_guess_len_needed = ((self.NUM_STATES - len(self.r_dep_list[0]))*self.NUM_MODELS + len(self.r_dep_list[0]) + self.NUM_INPUTS )*self.NUM_NODES + len(self.k)
+        
+        
+        
+        # print((self.NUM_STATES - len(self.r_dep_list)))
+        
+        # print(len(self.r_dep_list) + self.NUM_INPUTS)
+        
+        print('initial_guess_len_needed', initial_guess_len_needed)
 
         if self.SAMPLING_FREQUENCY != initial_guess['SAMPLING_FREQUENCY']:#Need to interpolate:
             
             print('- Interpolating initial guess')
             
-            initial_guess_value_interp = np.empty((self.NUM_STATES*initial_guess['NUM_MODELS'] + self.NUM_INPUTS)*self.NUM_NODES)
-            previous_NUM_NODES = len(initial_guess['value']) // (self.NUM_STATES*initial_guess['NUM_MODELS'] + self.NUM_INPUTS) 
+            initial_guess_value_interp = np.empty((self.NUM_STATES*initial_guess['NUM_MODELS'] + self.NUM_INPUTS)*self.NUM_NODES + len(self.k))
+            previous_NUM_NODES = len(initial_guess['value'] - len(self.k)) // (self.NUM_STATES*initial_guess['NUM_MODELS'] + self.NUM_INPUTS) 
+            
+            initial_guess_value_interp[- len(self.k):] = initial_guess['value'][- len(self.k):]
             
             #We assume NUM_STATES and NUM_INPUTS are the same
             for k in range(self.NUM_STATES*initial_guess['NUM_MODELS'] + self.NUM_INPUTS):
@@ -362,7 +407,7 @@ class SOCP_problem:
             
             
             
-            if socp_2.NUM_MODELS != initial_guess['NUM_MODELS']: #Need to scale
+            if self.NUM_MODELS != initial_guess['NUM_MODELS']: #Need to scale
             
                 print('- Scaling initial guess')
                 
@@ -373,18 +418,18 @@ class SOCP_problem:
                 
                 if NUM_MODEL_MISSING > 0 : #Up scaling
                     
-                    len_states_values_ready = len(initial_guess['value']) - self.NUM_NODES*self.NUM_INPUTS
+                    len_states_values_ready = len(initial_guess['value']) - self.NUM_NODES*(len(self.r_dep_list[0]) + len(self.r_ind_list[0]) + len(self.k))
                         
-                    #Values of states we already have ready
-                    initial_guess_value_interp_scaled[:len_states_values_ready] = initial_guess['value'][:len_states_values_ready]
-                    initial_guess_value_interp_scaled[-self.NUM_NODES*self.NUM_INPUTS:] = initial_guess['value'][len_states_values_ready:]
-                     
                     filling_values = initial_guess['value'][:len_states_values_ready]
                     
+                    #Values of states we already have ready
+                    initial_guess_value_interp_scaled[:len_states_values_ready] = filling_values
+                    initial_guess_value_interp_scaled[- self.NUM_NODES*(len(self.r_dep_list[0]) + len(self.r_ind_list[0]) + len(self.k)):] = initial_guess['value'][len_states_values_ready:]
+                     
                     
                     for k in range(NUM_MODEL_MISSING):
           
-                        initial_guess_value_interp_scaled[len_states_values_ready + (self.NUM_NODES*self.NUM_STATES)*k:len_states_values_ready + (self.NUM_NODES*self.NUM_STATES)*(k + 1)] = filling_values
+                        initial_guess_value_interp_scaled[len_states_values_ready + (self.NUM_NODES*(self.NUM_STATES - len(self.r_dep_list[0])))*k:len_states_values_ready + (self.NUM_NODES*(self.NUM_STATES - len(self.r_dep_list[0])))*(k + 1)] = filling_values
                     
                     initial_guess['value'] = initial_guess_value_interp_scaled
 
@@ -407,20 +452,22 @@ class SOCP_problem:
                 if NUM_MODEL_MISSING > 0 : #Up scaling
                     
                 
-                    len_states_values_ready = len(initial_guess['value']) - self.NUM_NODES*self.NUM_INPUTS
-    
+                    len_states_values_ready = len(initial_guess['value']) - self.NUM_NODES*(len(self.r_ind_list[0]) + len(self.r_dep_list[0]))
+                    filling_values = initial_guess['value'][:len_states_values_ready]
+
                     
                     #Values of states we already have ready
-                    initial_guess_value_interp_scaled[:len_states_values_ready] = initial_guess['value'][:len_states_values_ready]
-                    initial_guess_value_interp_scaled[-self.NUM_NODES*self.NUM_INPUTS:] = initial_guess['value'][len_states_values_ready:]     
-                    filling_values = initial_guess['value'][:len_states_values_ready]
+                    initial_guess_value_interp_scaled[:len_states_values_ready] = filling_values
+                    initial_guess_value_interp_scaled[- self.NUM_NODES*(len(self.r_ind_list[0]) + len(self.r_dep_list[0])):] = initial_guess['value'][len_states_values_ready:]     
                      
                     for k in range(NUM_MODEL_MISSING):
 
-                        initial_guess_value_interp_scaled[len_states_values_ready + (self.NUM_NODES*self.NUM_STATES)*k:len_states_values_ready + (self.NUM_NODES*self.NUM_STATES)*(k + 1)] = filling_values
+                        initial_guess_value_interp_scaled[len_states_values_ready + len_states_values_ready*k:len_states_values_ready + len_states_values_ready*(k + 1)] = filling_values
                         
                     
                     initial_guess['value'] = initial_guess_value_interp_scaled
+                    
+                    print(len(initial_guess_value_interp_scaled))
                         
                 else:
                     raise NameError('Down Scaling not implemented yet')
@@ -438,14 +485,18 @@ class SOCP_problem:
 
             # problem.plot_trajectories(sol)
             
+            self.k_opt = self.sol[-len(self.k):]
+            self.x_opt = self.sol[:-len(self.k)].reshape(-1, self.NUM_NODES)[:self.NUM_STATES_TOT - len(self.r_dep_list[0]), :]
+            self.r_dep_opt = self.sol[:-len(self.k)].reshape(-1, self.NUM_NODES)[self.NUM_STATES_TOT - len(self.r_dep_list[0]) : self.NUM_STATES_TOT, :]
+            self.r_ind_opt = self.sol[:-len(self.k)].reshape(-1, self.NUM_NODES)[- len(self.r_ind_list[0]):, :]
 
-            self.x_opt, self.T_opt = self.sol.reshape(-1, self.NUM_NODES)[:-self.NUM_INPUTS,:], self.sol.reshape(-1, self.NUM_NODES)[-self.NUM_INPUTS:,:]
-            
             time_5 = time.time()
             
             self.solving_time = round(time_5 - time_4, 2)
             
             print(f'- START {n_start+1}/{N_start} SOLVED - {self.solving_time} sec')
+            
+            print('Optimal Gains:', self.k_opt)
 
             to_save = {
                 'model_type' : self.model_type,
@@ -470,11 +521,13 @@ class SOCP_problem:
                 'prob_def_time' : self.prob_def_time,
                 'solving_time' : self.solving_time,
                 't_simu' : self.t_simu,
+                'k_opt' : self.k_opt,
                 'x_opt' : self.x_opt,
-                'T_opt' : self.T_opt}
+                'r_dep_opt' : self.r_dep_opt,
+                'r_ind_opt' : self.r_ind_opt}
                 
             save_results(to_save, path_results_folder)
-            export_results_as_csv(self.t_simu, self.x_opt, self.T_opt, self.x, self.r, self.k, n_start, self.model_type, self.known_trajectories, path_results_folder)
+            export_results_as_csv(self.t_simu, self.k_opt, self.x_opt, self.r_dep_opt, self.r_ind_opt, self.k, self.x, self.r, n_start, self.model_type, self.known_trajectories, path_results_folder)
 
             if visualization_flag == True:
               
@@ -484,28 +537,47 @@ class SOCP_problem:
                 
                 for model_index in range(self.NUM_MODELS):
                             
-                            
-                    x_opt_model = self.x_opt[model_index*self.NUM_STATES:self.NUM_STATES*(model_index+1), :]
+    
+                    x_opt_model = self.x_opt[model_index*(self.NUM_STATES - len(self.r_dep_list[0])) : (self.NUM_STATES - len(self.r_dep_list[0]))*(model_index + 1), :] #DO NOT contains dep torques
                     # T_opt_model = self.T_opt[model_index*self.NUM_INPUTS:self.NUM_INPUTS*(model_index+1), :]
                     disturbance_model =  self.known_trajectories[list(self.known_trajectories.keys())[model_index]]
-                    x_model = self.x[model_index*self.NUM_STATES:self.NUM_STATES*(model_index+1)]
+                    x_model = self.x[model_index*(self.NUM_STATES - len(self.r_dep_list[0])):(self.NUM_STATES - len(self.r_dep_list[0]))*(model_index + 1)]
+                    x_model = x_model + self.x[- len(self.r_dep_list[0]):]
                     r_model = self.r
                     
-                    plot_optimal_solution(self.t_simu, self.x_list, self.r_list, self.disturbance_list, n_start, model_index, np.vstack((x_opt_model, self.T_opt, disturbance_model)), path_results_folder)
+                    self.x_model = x_model
+                    
+                    # print(x_opt_model.shape)
+                    # print(self.r_opt.shape)
+                    # print(disturbance_model)
+                    
+                    
+                    # np.vstack((x_opt_model, self.r_opt, disturbance_model))
+                    
+                    # print(len(x_opt_model))
+                    # print(len(self.r_dep_opt))
+
+                    # print(len(self.r_ind_opt))
+                    # print(len(disturbance_model))
+
+                    plot_optimal_solution(self.t_simu, self.x_list, self.r_dep_list, self.r_ind_list, self.disturbance_list, n_start, model_index, np.vstack((x_opt_model, self.r_dep_opt, self.r_ind_opt, disturbance_model)), path_results_folder)
             
-                    animate_solution(self.t_simu, 
-                                 x_opt_model, 
-                                 self.T_opt, 
-                                 disturbance_model, 
-                                 self.bicycle_list[model_index], 
-                                 x_model, 
-                                 r_model,
-                                 self.p,
-                                 path_results_folder + f'animation_{model_index}')
-        
+                    # x_opt_model_ani = self.x_opt[model_index*self.NUM_STATES:self.NUM_STATES*(model_index + 1), :]
+                    
+                    if False:
+                        animate_solution(self.t_simu, 
+                                     x_opt_model, 
+                                     np.empty((len(socp_1.r), self.NUM_NODES)), #We don't need to good values for the ani
+                                     disturbance_model, 
+                                     self.bicycle_list[model_index], 
+                                     x_model, 
+                                     r_model,
+                                     self.p,
+                                     path_results_folder + f'animation_{model_index}')
+            
       
 
-MAX_INTER = 5000
+MAX_INTER = 50000
 NUM_MODELS = 1
 model_type = 'model_level_1'
 WEIGHT = 0.5
@@ -515,43 +587,48 @@ SAMPLING_FREQUENCY = 25
 
 socp_1 = SOCP_problem(NUM_MODELS, model_type)
 
-socp_1.generate_bounds_and_contstraints(SPEED, SAMPLING_FREQUENCY=25)
+socp_1.generate_bounds_and_contstraints(SPEED, SAMPLING_FREQUENCY=5)
 # We can manually adjust the bounds here
-socp_1.formulate_Opty_problem()
+socp_1.formulate_Opty_problem(MAX_INTER)
 
 # Solving a first time a random initial guess
 # initial_guess = np.random.rand((socp_1.NUM_STATES_TOT + socp_1.NUM_INPUTS)*socp_1.NUM_NODES)
 
 initial_guess =  {'NUM_MODELS' : NUM_MODELS,
-                  'SAMPLING_FREQUENCY' : SAMPLING_FREQUENCY,
-                  'value' : np.zeros((socp_1.NUM_STATES_TOT + socp_1.NUM_INPUTS)*socp_1.NUM_NODES)}
-
-
-
-socp_1.solve_Opty_problem(initial_guess, visualization_flag = True, N_start=1)
-
-
+                  'SAMPLING_FREQUENCY' : 5,
+                  'value' : np.zeros((socp_1.NUM_STATES_TOT + socp_1.NUM_INPUTS)*socp_1.NUM_NODES + len(socp_1.k))}
 
 # initial_guess =  {'NUM_MODELS' : NUM_MODELS,
 #                   'SAMPLING_FREQUENCY' : SAMPLING_FREQUENCY,
 #                   'value' : socp_1.sol}
 
-# socp_2 = SOCP_problem(3, model_type)
-# socp_2.generate_bounds_and_contstraints(SPEED, SAMPLING_FREQUENCY = 25)
-# socp_2.formulate_Opty_problem(MAX_INTER = 5000)
-# socp_2.solve_Opty_problem(initial_guess, visualization_flag = True, N_start = 1)
+socp_1.solve_Opty_problem(initial_guess, visualization_flag = False, N_start=1)
+
+
+initial_guess =  {'NUM_MODELS' : NUM_MODELS,
+                  'SAMPLING_FREQUENCY' : 5,
+                  'value' : socp_1.sol}
+
+socp_2 = SOCP_problem(1, model_type)
+socp_2.generate_bounds_and_contstraints(SPEED, SAMPLING_FREQUENCY = 25)
+socp_2.formulate_Opty_problem(MAX_INTER = 5000)
+socp_2.solve_Opty_problem(initial_guess, visualization_flag = True, N_start = 1)
 
 
 
 
-# initial_guess =  {'NUM_MODELS' : 3,
-#                   'SAMPLING_FREQUENCY' : 25,
-#                   'value' : socp_2.sol}
+# init = np.zeros(3*25*(16+2+1)+8)
+# ones = np.ones(3*25)
+# init[16*3*25 + 3*25*2 : 16*3*25 + 3*25*3] = ones
 
-# socp_3 = SOCP_problem(3, model_type)
-# socp_3.generate_bounds_and_contstraints(SPEED, SAMPLING_FREQUENCY = 25)
-# socp_3.formulate_Opty_problem(MAX_INTER = 5000)
-# socp_3.solve_Opty_problem(initial_guess, visualization_flag = True, N_start = 1)
+initial_guess =  {'NUM_MODELS' : 1,
+                  'SAMPLING_FREQUENCY' : 25,
+                  'value' : socp_2.sol}
+
+socp_3 = SOCP_problem(2, model_type)
+socp_3.generate_bounds_and_contstraints(SPEED, SAMPLING_FREQUENCY = 25)
+socp_3.formulate_Opty_problem(MAX_INTER = 5000)
+socp_3.solve_Opty_problem(initial_guess, visualization_flag = True, N_start = 1)
 
 
 

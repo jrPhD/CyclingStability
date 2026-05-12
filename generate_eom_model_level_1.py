@@ -38,7 +38,7 @@ from typing import Dict, Any
 import bicycleparameters as bp
 
 
-
+# model_name = 'model_1'
 
 def generate_model(model_name):
     t = me.dynamicsymbols._t
@@ -76,7 +76,9 @@ def generate_model(model_name):
     system.add_loads(me.Force(bicycle.rear_frame.saddle.point, disturbance * bicycle.rear_frame.wheel_hub.axis))
     
     # Steer torque
-    steer_torque = me.dynamicsymbols(f"{model_name}_steer_torque")
+    steer_torque_ff = me.dynamicsymbols("steer_torque_ff")
+
+    steer_torque = me.dynamicsymbols("steer_torque")
     system.add_actuators(
         me.TorqueActuator(
             steer_torque,
@@ -86,7 +88,23 @@ def generate_model(model_name):
         )
     )
     
-    pedaling_torque = me.dynamicsymbols(f"{model_name}_pedaling_torque")
+    # Roll torque
+    # roll_torque = me.dynamicsymbols(f"{model_name}_roll_torque")
+    roll_torque = me.dynamicsymbols("roll_torque")
+    
+    system.add_actuators(
+        me.TorqueActuator(
+            roll_torque,
+            bicycle.rear_frame.body.frame.x,
+            bicycle.ground.frame,
+            bicycle.rear_frame.body.frame,
+        )
+    )
+    
+    
+    # pedaling_torque = me.dynamicsymbols(f"{model_name}_pedaling_torque")
+    pedaling_torque = me.dynamicsymbols("pedaling_torque")
+    
     system.add_actuators(
         me.TorqueActuator(
             pedaling_torque,
@@ -144,7 +162,7 @@ def generate_model(model_name):
     x = system.q.col_join(system.u)
     # x = x.col_join(sm.Matrix([disturbance]))
     # r = (steer_torque, pedaling_torque)
-    r = sm.Matrix([steer_torque, pedaling_torque])
+    
     
     p = constants
     
@@ -161,11 +179,50 @@ def generate_model(model_name):
     h_cons = system.holonomic_constraints
     kdes = system.kdes
     
+    #Feedback loops
+    
+    ## Option 1: feedback gain is constant over time
+    K_s_q4 = sm.symbols("K_s_q4")
+    K_s_q7 = sm.symbols("K_s_q7")
+    K_s_u4 = sm.symbols("K_s_u4")
+    K_s_u7 = sm.symbols("K_s_u7")
+    
+    
+    K_r_q4 = sm.symbols("K_r_q4")
+    K_r_q7 = sm.symbols("K_r_q7")
+    K_r_u4 = sm.symbols("K_r_u4")
+    K_r_u7 = sm.symbols("K_r_u7")
+    
+    M_gains_steer = sm.Matrix([K_s_q4, K_s_q7, K_s_u4, K_s_u7]).T
+    M_gains_roll = sm.Matrix([K_r_q4, K_r_q7, K_r_u4, K_r_u7]).T
+    
+    
+    q_obs = sm.Matrix([q4, q7, u4, u7])
+    q_ref = sm.Matrix([0, 0, 0, 0])
+    
+    eq_feedback_1 = sm.Matrix([steer_torque - steer_torque_ff]) - M_gains_steer*(q_obs - q_ref)
+    eq_feedback_2 = sm.Matrix([roll_torque]) - M_gains_roll*(q_obs - q_ref)
+    
+    
+    k = sm.Matrix([K_s_q4, K_s_q7, K_s_u4, K_s_u7, K_r_q4, K_r_q7, K_r_u4, K_r_u7])
+    
+    r_dep = sm.Matrix([steer_torque, roll_torque])
+    
+    r_ind = sm.Matrix([pedaling_torque, steer_torque_ff])
+    
+    
+    
+    
+    
     eoms = eoms.col_join(sm.Matrix(kdes)).col_join(sm.Matrix(h_cons)).col_join(sm.Matrix(nh_cons))
     
-    disturbance = sm.Matrix([disturbance])
+    #Add feedback equations
     
-    return t, x, r, eoms, p, bicycle, disturbance
+    eoms = eoms.col_join(sm.Matrix([eq_feedback_1])).col_join(sm.Matrix([eq_feedback_2]))
+    
+    disturbance = sm.Matrix([disturbance])
+
+    return t, x, r_dep, r_ind, k, eoms, p, bicycle, disturbance
 
 
 def export_constants(constants: dict[str, float]) -> None:
@@ -193,8 +250,8 @@ def export_constants(constants: dict[str, float]) -> None:
 if __name__ == "__main__":
 
     pass
-    model_name = 'model_0'
-    t, x, r, eoms, p, bicycle, disturbance = generate_model(model_name)
+    model_name = 'model_1'
+    t, x, r_dep, r_ind, k, eoms, p, bicycle, disturbance = generate_model(model_name)
 
     # export_constants(constants)
 
