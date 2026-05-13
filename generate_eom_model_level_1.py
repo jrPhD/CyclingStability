@@ -69,6 +69,20 @@ def generate_model(model_name):
     system.apply_uniform_gravity(-g * normal)
     
     
+    #Noise
+    
+    w_s_q4 = me.dynamicsymbols(f"{model_name}_w_s_q4")
+    w_s_u4 = me.dynamicsymbols(f"{model_name}_w_s_u4")
+    w_s_q7 = me.dynamicsymbols(f"{model_name}_w_s_q7")
+    w_s_u7 = me.dynamicsymbols(f"{model_name}_w_s_u7")
+    
+    w_m_steer = me.dynamicsymbols(f"{model_name}_w_m_steer")
+    w_m_roll = me.dynamicsymbols(f"{model_name}_w_m_roll")
+    
+    W_s = sm.Matrix([w_s_q4, w_s_u4, w_s_q7, w_s_u7])
+    W_m = sm.Matrix([w_m_steer, w_m_roll])
+
+    W = W_s.col_join(W_m)
     
     # Disturbance
     disturbance = me.dynamicsymbols(f"{model_name}_disturbance")
@@ -76,7 +90,8 @@ def generate_model(model_name):
     system.add_loads(me.Force(bicycle.rear_frame.saddle.point, disturbance * bicycle.rear_frame.wheel_hub.axis))
     
     # Steer torque
-    steer_torque_ff = me.dynamicsymbols("steer_torque_ff")
+    steer_torque_vol = me.dynamicsymbols("steer_torque_vol")
+
 
     steer_torque = me.dynamicsymbols("steer_torque")
     system.add_actuators(
@@ -91,6 +106,8 @@ def generate_model(model_name):
     # Roll torque
     # roll_torque = me.dynamicsymbols(f"{model_name}_roll_torque")
     roll_torque = me.dynamicsymbols("roll_torque")
+    roll_torque_vol = me.dynamicsymbols("roll_torque_vol")
+
     
     system.add_actuators(
         me.TorqueActuator(
@@ -200,15 +217,15 @@ def generate_model(model_name):
     q_obs = sm.Matrix([q4, q7, u4, u7])
     q_ref = sm.Matrix([0, 0, 0, 0])
     
-    eq_feedback_1 = sm.Matrix([steer_torque - steer_torque_ff]) - M_gains_steer*(q_obs - q_ref)
-    eq_feedback_2 = sm.Matrix([roll_torque]) - M_gains_roll*(q_obs - q_ref)
+    eq_feedback_1 = sm.Matrix([steer_torque - steer_torque_vol + w_m_steer]) - M_gains_steer*(q_obs - q_ref + W_s)
+    eq_feedback_2 = sm.Matrix([roll_torque - roll_torque_vol + w_m_roll]) - M_gains_roll*(q_obs - q_ref + W_s)
     
     
     k = sm.Matrix([K_s_q4, K_s_q7, K_s_u4, K_s_u7, K_r_q4, K_r_q7, K_r_u4, K_r_u7])
     
     r_dep = sm.Matrix([steer_torque, roll_torque])
     
-    r_ind = sm.Matrix([pedaling_torque, steer_torque_ff])
+    r_ind = sm.Matrix([pedaling_torque, steer_torque_vol, roll_torque_vol])
     
     
     
@@ -222,7 +239,7 @@ def generate_model(model_name):
     
     disturbance = sm.Matrix([disturbance])
 
-    return t, x, r_dep, r_ind, k, eoms, p, bicycle, disturbance
+    return t, x, r_dep, r_ind, k, eoms, p, bicycle, disturbance, W
 
 
 def export_constants(constants: dict[str, float]) -> None:
@@ -251,7 +268,7 @@ if __name__ == "__main__":
 
     pass
     model_name = 'model_1'
-    t, x, r_dep, r_ind, k, eoms, p, bicycle, disturbance = generate_model(model_name)
+    t, x, r_dep, r_ind, k, eoms, p, bicycle, disturbance, W = generate_model(model_name)
 
     # export_constants(constants)
 

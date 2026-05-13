@@ -121,7 +121,8 @@ def plot_optimal_solution(t_simu, x_list, r_dep_list, r_ind_list, disturbance_li
           # (3, 0, r'K_steer []', 'conv_False'),
           # (3, 1, r'K_roll []', 'conv_False'),
           (2, 2, r'$T_{ped}$ [Nm]', 'conv_False'),
-          (2, 0, r'$T_{\delta_{ff}}$ [Nm]', 'conv_False'),
+          (2, 0, r'$T_{\delta_{vol}}$ [Nm]', 'conv_False'),
+          (2, 0, r'$T_{\phi_{vol}}$ [Nm]', 'conv_False'),
           (3, 2, r'Disturbance [N]', 'conv_False')] 
     
     

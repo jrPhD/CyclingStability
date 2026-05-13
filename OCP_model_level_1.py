@@ -51,10 +51,10 @@ class SOCP_problem:
         
         print(f'PROBLEM INITIALIZED - {NUM_MODELS} models of type "{model_type}":')
 
-        t_list, x_list, r_dep_list, r_ind_list, k_list ,eoms_list, p_list, bicycle_list, disturbance_list = [], [], [],[],[],[],[],[],[]
+        t_list, x_list, r_dep_list, r_ind_list, k_list ,eoms_list, p_list, bicycle_list, disturbance_list, W_list = [], [], [],[],[],[],[],[],[], []
 
         for model in model_names:
-            t_model, x_model, r_dep_model, r_ind_model, k_model, eoms_model, p_model, bicycle_model, disturbance_model = generate_model(model)
+            t_model, x_model, r_dep_model, r_ind_model, k_model, eoms_model, p_model, bicycle_model, disturbance_model, W_model = generate_model(model)
             
             t_list.append(t_model)
             x_list.append(x_model)
@@ -66,6 +66,7 @@ class SOCP_problem:
             p_list.append(p_model)
             bicycle_list.append(bicycle_model)
             disturbance_list.append(disturbance_model)
+            W_list.append(W_model)
 
         self.NUM_MODELS = NUM_MODELS
         self.t = t_list[0]
@@ -81,6 +82,8 @@ class SOCP_problem:
         self.eoms = eoms_list[0]
         self.p = p_list[0]
         self.disturbance = disturbance_list[0]
+        self.W = W_list[0]
+
         self.bicycle_list = bicycle_list
         
         self.x_list = x_list
@@ -89,6 +92,8 @@ class SOCP_problem:
 
 
         self.disturbance_list = disturbance_list
+        
+        self.W_list  = W_list
         
         if self.NUM_MODELS > 1:
             
@@ -99,6 +104,8 @@ class SOCP_problem:
                 # self.r = self.r.col_join(r_list[k])
                 self.eoms = self.eoms.col_join(eoms_list[k])
                 self.disturbance = self.disturbance.col_join(disturbance_list[k])
+                self.W = self.W.col_join(W_list[k])
+
             self.x = self.x.col_join(r_dep_list[0])
 
         
@@ -156,6 +163,8 @@ class SOCP_problem:
         steer_torque, roll_torque = self.x[-2:]
         # K_steer, K_roll = self.k
         
+        # K_s_q4, K_s_q7, K_s_u4, K_s_u7, K_r_q4, K_r_q7, K_r_u4, K_r_u7 = self.k
+        
         # print(self.r)
         
         pedaling_torque = self.r[0]
@@ -169,6 +178,9 @@ class SOCP_problem:
         # self.bounds[K_roll] = (-10, 10)
         self.initial_state_constraints[steer_torque] = 0
         self.initial_state_constraints[pedaling_torque] = 0
+        
+        for gain in self.k:
+            self.bounds[gain] = (-300, 300)
 
         
         for model_index in range(self.NUM_MODELS):
@@ -269,43 +281,61 @@ class SOCP_problem:
 
         def obj(free):
             """Cost function definition"""
-            x, r, _ = parse_free(free, NUM_STATES, NUM_INPUTS, NUM_NODES)
+            x, r, k = parse_free(free, NUM_STATES, NUM_INPUTS, NUM_NODES)
     
             q2 = x[1]
             
             tau_steer, tau_roll = x[-2:]
             
+            K = k[:]
+            
+            # r_dot = np.diff(r)
             
             #Minimize lateral travelled distance
             J1 = INTERVAL_VALUE*((WEIGHT)*(np.sum(q2**2)))
         
             J2 = INTERVAL_VALUE*((1-WEIGHT)*(np.sum((r.flatten())**2)))
             
-            J3 = INTERVAL_VALUE*((1-WEIGHT)*(np.sum((tau_steer)**2 + (tau_roll)**2)))
+            # J3 = INTERVAL_VALUE*((1-WEIGHT)*(np.sum((r_dot.flatten())**2)))
             
-            return J1 + J2 + J3
+            J4 = (1-WEIGHT)*np.sum(K**2)
+            
+            return J1 + J2 + J4
     
     
         def obj_grad(free):
             
-            x, r, _ = parse_free(free, NUM_STATES, NUM_INPUTS, NUM_NODES)
+            x, r, k = parse_free(free, NUM_STATES, NUM_INPUTS, NUM_NODES)
     
             q2 = x[1]
             
             tau_steer, tau_roll = x[-2:]
+            
+            K = k[:]
         
             grad = np.zeros_like(free)
             
             grad[1*NUM_NODES:2*NUM_NODES] = 2.0*INTERVAL_VALUE*WEIGHT*q2
             grad[NUM_STATES*NUM_NODES:(NUM_STATES + NUM_INPUTS)*NUM_NODES] = 2.0*(1.0-WEIGHT)*INTERVAL_VALUE*r.flatten()
             
-            grad[(NUM_STATES - 2)*NUM_NODES : (NUM_STATES - 1)*NUM_NODES] = 2.0*(1.0-WEIGHT)*INTERVAL_VALUE*tau_steer
-            grad[(NUM_STATES - 1)*NUM_NODES : (NUM_STATES)*NUM_NODES] = 2.0*(1.0-WEIGHT)*INTERVAL_VALUE*tau_roll
+            # grad[(NUM_STATES - 2)*NUM_NODES : (NUM_STATES - 1)*NUM_NODES] = 2.0*(1.0-WEIGHT)*INTERVAL_VALUE*tau_steer
+            # grad[(NUM_STATES - 1)*NUM_NODES : (NUM_STATES)*NUM_NODES] = 2.0*(1.0-WEIGHT)*INTERVAL_VALUE*tau_roll
 
-            
+            grad[-len(K):] = 2.0*(1-WEIGHT)*K            
+
             return grad
         
-        motor_noise_magnitude = 1
+        motor_noise_magnitude = 0.001
+        sensory_noise_magnitude = 0.001
+        perturbation_magnitude = 1
+        
+        dict_sensory_noise = {w_s : np.random.normal(0, sensory_noise_magnitude, (self.NUM_NODES)) for w_s in self.W[:4]}
+        dict_motor_noise = {w_m : np.random.normal(0, motor_noise_magnitude, (self.NUM_NODES)) for w_m in self.W[4:]}
+        dict_disturbance = {dist : np.random.normal(0, perturbation_magnitude, (self.NUM_NODES)) for dist in self.disturbance}
+
+
+        self.known_trajectories = dict_sensory_noise | dict_motor_noise | dict_disturbance
+        
         
         time_2 = time.time()
         
@@ -313,7 +343,6 @@ class SOCP_problem:
                 xi.replace(self.t, 0.0) - xi_val for xi, xi_val in self.initial_state_constraints.items()) + tuple(
                 xi.replace(self.t, self.DURATION) - xi_val for xi, xi_val in self.final_state_constraints.items())
 
-        self.known_trajectories = {dist : np.random.normal(0, motor_noise_magnitude, self.NUM_NODES) for dist in self.disturbance}
 
         for traj in self.known_trajectories.keys():
             self.known_trajectories[traj][0] = 0
